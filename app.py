@@ -400,102 +400,103 @@ def main():
             st.pyplot(fig)
             plt.close()
 
-        # =============================================================
-# SECCIÓN 4: ESTRUCTURA DE CAPITAL Y LIQUIDEZ
-# =============================================================
-st.header("🏦 Estructura de Capital y Liquidez (por sector)")
-
-for sec in sectors_ordered:
-    sec_df = df[df["Sector"] == sec]
-    if sec_df.empty:
-        continue
+        # =====================================================
+        # SECCIÓN 4: ESTRUCTURA DE CAPITAL Y LIQUIDEZ
+        # =====================================================
+        st.header("🏦 Estructura de Capital y Liquidez (por sector)")
         
-    with st.expander(f"Sector: {sec}", expanded=False):
-        for i, chunk in enumerate(chunk_df(sec_df), 1):
-            st.caption(f"Bloque {i}")
-            c1, c2 = st.columns(2)
-            
-            with c1:
-                st.caption("Patrimonio Deuda Activos (Últimos 4 años)")
+        for sec in sectors_ordered:
+            sec_df = df[df["Sector"] == sec]
+            if sec_df.empty:
+                continue
                 
-                # Crear gráfico para cada empresa en el chunk
-                for _, empresa in chunk.iterrows():
-                    st.markdown(f"**{empresa['Ticker']}**")
+            with st.expander(f"Sector: {sec}", expanded=False):
+                for i, chunk in enumerate(chunk_df(sec_df), 1):
+                    st.caption(f"Bloque {i}")
+                    c1, c2 = st.columns(2)
                     
-                    # Obtener datos históricos del balance sheet
-                    bs_history = empresa.get('BalanceSheetHistory', {})
-                    
-                    if bs_history:
-                        # Preparar datos para el gráfico
-                        years = sorted(bs_history.keys())
+                    with c1:
+                        st.caption("Patrimonio Deuda Activos (Últimos 4 años)")
                         
-                        # Obtener datos para cada año
-                        assets_data = []
-                        liabilities_data = []
-                        equity_data = []
-                        
-                        for year in years:
-                            assets_data.append(bs_history[year].get('Total Assets', 0) / 1e6)  # Convertir a millones
-                            liabilities_data.append(bs_history[year].get('Total Liabilities', 0) / 1e6)
-                            equity_data.append(bs_history[year].get('Total Equity', 0) / 1e6)
-                        
-                        # Crear gráfico de barras agrupadas
-                        fig, ax = plt.subplots(figsize=(12, 6))
-                        
-                        x_pos = np.arange(len(years))
-                        width = 0.25  # Ancho de las barras
-                        
-                        # Crear barras para cada categoría
-                        bars1 = ax.bar(x_pos - width, assets_data, width, 
-                                      label='Activos Totales', color='#45B7D1', alpha=0.8)
-                        bars2 = ax.bar(x_pos, liabilities_data, width, 
-                                      label='Pasivos Totales', color='#FF6B6B', alpha=0.8)
-                        bars3 = ax.bar(x_pos + width, equity_data, width, 
-                                      label='Patrimonio Neto', color='#4ECDC4', alpha=0.8)
-                        
-                        ax.set_xlabel('Año')
-                        ax.set_ylabel('Millones USD')
-                        ax.set_title(f"{empresa['Ticker']} - Estructura Patrimonial (Últimos 4 años)")
-                        ax.set_xticks(x_pos)
-                        ax.set_xticklabels(years)
-                        ax.legend()
-                        
-                        # Añadir valores en las barras
-                        def add_value_labels(bars):
-                            for bar in bars:
-                                height = bar.get_height()
-                                if height > 0:  # Solo mostrar valores positivos
-                                    ax.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
-                                            f'{height:,.0f}M', ha='center', va='bottom', 
-                                            fontsize=8, fontweight='bold')
-                        
-                        add_value_labels(bars1)
-                        add_value_labels(bars2)
-                        add_value_labels(bars3)
-                        
-                        # Ajustar límites del eje Y
-                        max_value = max(max(assets_data), max(liabilities_data), max(equity_data))
-                        ax.set_ylim(0, max_value * 1.15)
-                        
-                        # Mejorar la legibilidad
-                        plt.xticks(rotation=45)
-                        plt.tight_layout()
-                        
+                        # Crear gráfico para cada empresa en el chunk
+                        for _, empresa in chunk.iterrows():
+                            st.markdown(f"**{empresa['Ticker']}**")
+                            
+                            # Obtener datos históricos del balance sheet
+                            bs_history = empresa.get('BalanceSheetHistory', {})
+                            
+                            if bs_history:
+                                # Preparar datos para el gráfico
+                                years = sorted(bs_history.keys())
+                                
+                                # Obtener datos para cada año
+                                assets_data = []
+                                liabilities_data = []
+                                equity_data = []
+                                
+                                for year in years:
+                                    assets_data.append(bs_history[year].get('Total Assets', 0) / 1e6)  # Convertir a millones
+                                    liabilities_data.append(bs_history[year].get('Total Liabilities', 0) / 1e6)
+                                    equity_data.append(bs_history[year].get('Total Equity', 0) / 1e6)
+                                
+                                # Crear gráfico de barras agrupadas
+                                fig, ax = plt.subplots(figsize=(12, 6))
+                                
+                                x_pos = np.arange(len(years))
+                                width = 0.25  # Ancho de las barras
+                                
+                                # Crear barras para cada categoría
+                                bars1 = ax.bar(x_pos - width, assets_data, width, 
+                                              label='Activos Totales', color='#45B7D1', alpha=0.8)
+                                bars2 = ax.bar(x_pos, liabilities_data, width, 
+                                              label='Pasivos Totales', color='#FF6B6B', alpha=0.8)
+                                bars3 = ax.bar(x_pos + width, equity_data, width, 
+                                              label='Patrimonio Neto', color='#4ECDC4', alpha=0.8)
+                                
+                                ax.set_xlabel('Año')
+                                ax.set_ylabel('Millones USD')
+                                ax.set_title(f"{empresa['Ticker']} - Estructura Patrimonial (Últimos 4 años)")
+                                ax.set_xticks(x_pos)
+                                ax.set_xticklabels(years)
+                                ax.legend()
+                                
+                                # Añadir valores en las barras
+                                def add_value_labels(bars):
+                                    for bar in bars:
+                                        height = bar.get_height()
+                                        if height > 0:  # Solo mostrar valores positivos
+                                            ax.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
+                                                    f'{height:,.0f}M', ha='center', va='bottom', 
+                                                    fontsize=8, fontweight='bold')
+                                
+                                add_value_labels(bars1)
+                                add_value_labels(bars2)
+                                add_value_labels(bars3)
+                                
+                                # Ajustar límites del eje Y
+                                max_value = max(max(assets_data), max(liabilities_data), max(equity_data))
+                                ax.set_ylim(0, max_value * 1.15)
+                                
+                                # Mejorar la legibilidad
+                                plt.xticks(rotation=45)
+                                plt.tight_layout()
+                                
+                                st.pyplot(fig)
+                                plt.close()
+                            else:
+                                st.warning("No hay datos históricos disponibles")
+                            
+                    with c2:
+                        st.caption("Liquidez")
+                        fig, ax = plt.subplots(figsize=(10, 5))
+                        liq = chunk[["Ticker", "Current Ratio", "Quick Ratio"]].set_index("Ticker").apply(pd.to_numeric, errors="coerce")
+                        liq.plot(kind="bar", ax=ax, rot=45)
+                        ax.axhline(1, color="green", linestyle="--")
+                        ax.set_ylabel("Ratio")
+                        auto_ylim(ax, liq)
                         st.pyplot(fig)
                         plt.close()
-                    else:
-                        st.warning("No hay datos históricos disponibles")
-                    
-            with c2:
-                st.caption("Liquidez")
-                fig, ax = plt.subplots(figsize=(10, 5))
-                liq = chunk[["Ticker", "Current Ratio", "Quick Ratio"]].set_index("Ticker").apply(pd.to_numeric, errors="coerce")
-                liq.plot(kind="bar", ax=ax, rot=45)
-                ax.axhline(1, color="green", linestyle="--")
-                ax.set_ylabel("Ratio")
-                auto_ylim(ax, liq)
-                st.pyplot(fig)
-                plt.close()
+
         # =====================================================
         # SECCIÓN 5: CRECIMIENTO
         # =====================================================
