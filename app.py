@@ -110,30 +110,48 @@ def auto_ylim(ax, values, pad=0.10):
         ymin, ymax = -m, m
     ax.set_ylim(ymin, ymax)
 
-def obtener_datos_balance_historico(ticker):
-    """Obtiene datos históricos del balance para un ticker"""
+def obtener_balance_historico(ticker, años=4):
+    """Obtener datos históricos de balance para los últimos años"""
     try:
         tkr = yf.Ticker(ticker)
-        bs = tkr.balance_sheet
+        # Obtener balance sheets anuales
+        balance_sheets = tkr.balance_sheet
+        if balance_sheets is None or balance_sheets.empty:
+            return None
+            
+        # Filtrar los últimos 'años' años
+        fechas_disponibles = balance_sheets.columns[:min(años, len(balance_sheets.columns))]
         
-        if bs is None or bs.empty:
-            return None, None, None, None
+        datos = {}
+        for fecha in fechas_disponibles:
+            año = fecha.year
+            # Buscar activos totales
+            activos = safe_first(seek_row(balance_sheets[fecha], [
+                "Total Assets", "TotalAssets", "Total Current Assets"
+            ])) or 0
+            
+            # Buscar pasivos totales
+            pasivos = safe_first(seek_row(balance_sheets[fecha], [
+                "Total Liabilities", "Total Liabilities Net Minority Interest",
+                "Total Current Liabilities"
+            ])) or 0
+            
+            # Buscar patrimonio neto
+            patrimonio = safe_first(seek_row(balance_sheets[fecha], [
+                "Total Stockholder Equity", "Stockholders Equity",
+                "Common Stock Equity"
+            ])) or 0
+            
+            datos[año] = {
+                "Activos Totales": activos,
+                "Pasivos Totales": pasivos,
+                "Patrimonio Neto": patrimonio
+            }
         
-        # Obtener últimos 4 años
-        bs_recent = bs.iloc[:, :4] if bs.shape[1] >= 4 else bs
-        
-        # Obtener datos necesarios
-        activos = seek_row(bs_recent, ["Total Assets", "TotalAssets"])
-        pasivos = seek_row(bs_recent, ["Total Liabilities", "TotalLiab"])
-        patrimonio = seek_row(bs_recent, ["Total Stockholder Equity", "Stockholders Equity"])
-        
-        years = bs_recent.columns.strftime('%Y')
-        
-        return activos, pasivos, patrimonio, years
-        
+        return datos
     except Exception as e:
-        st.warning(f"Error obteniendo datos históricos para {ticker}: {str(e)}")
-        return None, None, None, None
+        st.error(f"Error obteniendo balance histórico para {ticker}: {str(e)}")
+        return None
 
 def obtener_datos_financieros(tk, Tc_def):
     try:
@@ -322,7 +340,7 @@ def main():
                 "Precio", "P/E", "P/B", "P/FCF",
                 "Dividend Yield %", "Payout Ratio", "ROA", "ROE",
                 "Current Ratio", "Debt/Eq", "Oper Margin", "Profit Margin",
-                "WACC", "ROIC", "Creacion Valor (Wacc vs Roic)", "MarketCap"  # Cambiado
+                "WACC", "ROIC", "Creacion Valor (Wacc vs Roic)", "MarketCap"
             ]],
             use_container_width=True,
             height=500
@@ -425,47 +443,63 @@ def main():
                     c1, c2 = st.columns(2)
                     
                     with c1:
-                        st.caption("Evolución Patrimonio Deuda Activos (últimos 4 años)")
+                        st.caption("Patrimonio Deuda Activos (Últimos 4 años)")
                         
-                        fig, ax = plt.subplots(figsize=(12, 6))
-                        has_data = False
+                        # Obtener datos históricos para cada ticker en el chunk
+                        datos_historicos = {}
+                        for _, empresa in chunk.iterrows():
+                            ticker = empresa["Ticker"]
+                            balance_data = obtener_balance_historico(ticker)
+                            if balance_data:
+                                datos_historicos[ticker] = balance_data
                         
-                        for ticker in chunk["Ticker"]:
-                            activos, pasivos, patrimonio, years = obtener_datos_balance_historico(ticker)
+                        if datos_historicos:
+                            # Crear gráfico para cada empresa
+                            fig, axes = plt.subplots(len(datos_historicos), 1, 
+                                                   figsize=(12, 4 * len(datos_historicos)))
+                            fig.suptitle(f"Estructura Patrimonial - Sector {sec}", fontsize=16)
                             
-                            if activos is not None and not activos.empty:
-                                has_data = True
-                                # Crear DataFrame para el gráfico
-                                df_evol = pd.DataFrame({
-                                    'Activos': activos.values / 1e6,  # Convertir a millones
-                                    'Pasivos': pasivos.values / 1e6,
-                                    'Patrimonio': patrimonio.values / 1e6
-                                }, index=years)
+                            if len(datos_historicos) == 1:
+                                axes = [axes]
+                            
+                            for idx, (ticker, datos) in enumerate(datos_historicos.items()):
+                                ax = axes[idx]
+                                años = sorted(datos.keys())
                                 
-                                # Graficar
-                                x_pos = np.arange(len(years))
+                                # Preparar datos para el gráfico
+                                activos = [datos[año]["Activos Totales"] for año in años]
+                                pasivos = [datos[año]["Pasivos Totales"] for año in años]
+                                patrimonio = [datos[año]["Patrimonio Neto"] for año in años]
+                                
+                                # Convertir a millones para mejor visualización
+                                divisor = 1e6
+                                activos = [a/divisor for a in activos]
+                                pasivos = [p/divisor for p in pasivos]
+                                patrimonio = [pn/divisor for pn in patrimonio]
+                                
+                                # Crear gráfico de barras
+                                x_pos = np.arange(len(años))
                                 width = 0.25
                                 
-                                ax.bar(x_pos - width, df_evol['Activos'], width, 
-                                      label=f'{ticker} - Activos', alpha=0.8)
-                                ax.bar(x_pos, df_evol['Pasivos'], width, 
-                                      label=f'{ticker} - Pasivos', alpha=0.8)
-                                ax.bar(x_pos + width, df_evol['Patrimonio'], width, 
-                                      label=f'{ticker} - Patrimonio', alpha=0.8)
-                        
-                        if has_data:
-                            ax.set_xlabel('Año')
-                            ax.set_ylabel('Valor (Millones USD)')
-                            ax.set_title('Evolución Patrimonio Deuda Activos')
-                            ax.set_xticks(np.arange(len(years)))
-                            ax.set_xticklabels(years)
-                            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-                            plt.xticks(rotation=45)
+                                ax.bar(x_pos - width, activos, width, label='Activos Totales', alpha=0.8, color='blue')
+                                ax.bar(x_pos, pasivos, width, label='Pasivos Totales', alpha=0.8, color='red')
+                                ax.bar(x_pos + width, patrimonio, width, label='Patrimonio Neto', alpha=0.8, color='green')
+                                
+                                ax.set_ylabel('Millones USD')
+                                ax.set_title(f'{ticker}')
+                                ax.set_xticks(x_pos)
+                                ax.set_xticklabels(años)
+                                ax.legend()
+                                
+                                # Rotar etiquetas si hay muchos años
+                                plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+                            
+                            plt.tight_layout()
                             st.pyplot(fig)
+                            plt.close()
                         else:
-                            st.info(f"No se encontraron datos históricos de balance para las empresas del sector {sec}")
-                        plt.close()
-                        
+                            st.info(f"No se pudieron obtener datos históricos para las empresas del sector {sec}")
+                            
                     with c2:
                         st.caption("Liquidez")
                         fig, ax = plt.subplots(figsize=(10, 5))
@@ -529,7 +563,7 @@ def main():
             st.metric("Market Cap", det_disp["MarketCap"])
             st.metric("ROIC", det_disp["ROIC"])
             st.metric("WACC", det_disp["WACC"])
-            st.metric("Creación Valor", det_disp["Creacion Valor (Wacc vs Roic)"])  # Cambiado
+            st.metric("Creación Valor", det_disp["Creacion Valor (Wacc vs Roic)"])
             
         with cC:
             st.metric("ROE", det_disp["ROE"])
