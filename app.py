@@ -110,6 +110,31 @@ def auto_ylim(ax, values, pad=0.10):
         ymin, ymax = -m, m
     ax.set_ylim(ymin, ymax)
 
+def obtener_datos_balance_historico(ticker):
+    """Obtiene datos históricos del balance para un ticker"""
+    try:
+        tkr = yf.Ticker(ticker)
+        bs = tkr.balance_sheet
+        
+        if bs is None or bs.empty:
+            return None, None, None, None
+        
+        # Obtener últimos 4 años
+        bs_recent = bs.iloc[:, :4] if bs.shape[1] >= 4 else bs
+        
+        # Obtener datos necesarios
+        activos = seek_row(bs_recent, ["Total Assets", "TotalAssets"])
+        pasivos = seek_row(bs_recent, ["Total Liabilities", "TotalLiab"])
+        patrimonio = seek_row(bs_recent, ["Total Stockholder Equity", "Stockholders Equity"])
+        
+        years = bs_recent.columns.strftime('%Y')
+        
+        return activos, pasivos, patrimonio, years
+        
+    except Exception as e:
+        st.warning(f"Error obteniendo datos históricos para {ticker}: {str(e)}")
+        return None, None, None, None
+
 def obtener_datos_financieros(tk, Tc_def):
     try:
         tkr = yf.Ticker(tk)
@@ -129,8 +154,6 @@ def obtener_datos_financieros(tk, Tc_def):
             "Cash Cash Equivalents And Short Term Investments",
         ]))
         equity = safe_first(seek_row(bs, ["Common Stock Equity", "Total Stockholder Equity"]))
-        total_assets = safe_first(seek_row(bs, ["Total Assets"]))
-        total_liabilities = safe_first(seek_row(bs, ["Total Liabilities"]))
 
         interest = safe_first(seek_row(fin, ["Interest Expense"]))
         ebt = safe_first(seek_row(fin, ["Ebt", "EBT"]))
@@ -174,16 +197,6 @@ def obtener_datos_financieros(tk, Tc_def):
         eps_growth = cagr4(fin, "Net Income")
         fcf_growth = cagr4(cf, "Free Cash Flow") or cagr4(cf, "Operating Cash Flow")
 
-        # Obtener datos históricos de balance sheet para los últimos 4 años
-        bs_history = {}
-        if bs is not None and not bs.empty:
-            for year_col in bs.columns[:4]:  # Últimos 4 años
-                year_data = {}
-                year_data['Total Assets'] = bs[year_col].get('Total Assets', None)
-                year_data['Total Liabilities'] = bs[year_col].get('Total Liabilities', None)
-                year_data['Total Equity'] = bs[year_col].get('Total Stockholder Equity', None)
-                bs_history[year_col.year] = year_data
-
         return {
             "Ticker": tk,
             "Nombre": info.get("longName") or info.get("shortName") or info.get("displayName") or tk,
@@ -206,297 +219,15 @@ def obtener_datos_financieros(tk, Tc_def):
             "Profit Margin": profit_margin,
             "WACC": wacc,
             "ROIC": roic,
-            "Creacion Valor (Wacc vs Roic)": creacion_valor,
+            "Creacion Valor (Wacc vs Roic)": creacion_valor,  # Cambiado de EVA
             "Revenue Growth": revenue_growth,
             "EPS Growth": eps_growth,
             "FCF Growth": fcf_growth,
-            "MarketCap": mcap,
-            "BalanceSheetHistory": bs_history,
-            "TotalAssets": total_assets,
-            "TotalLiabilities": total_liabilities,
-            "TotalEquity": equity,
-            "EBIT": ebit,
-            "InterestExpense": interest
+            "MarketCap": mcap
         }
     except Exception as e:
         st.error(f"Error obteniendo datos para {tk}: {str(e)}")
         return None
-
-# =============================================================
-# ANÁLISIS DE SOSTENIBILIDAD DE DEUDA
-# =============================================================
-def analizar_sostenibilidad_deuda(empresa):
-    """
-    Analiza la sostenibilidad de deuda de una empresa
-    """
-    try:
-        # Obtener datos financieros históricos
-        tkr = yf.Ticker(empresa['Ticker'])
-        bs = tkr.balance_sheet
-        fin = tkr.financials
-        cf = tkr.cashflow
-        
-        # Obtener datos de los últimos 4 años
-        years = sorted(empresa['BalanceSheetHistory'].keys())[-4:] if empresa['BalanceSheetHistory'] else []
-        
-        if not years or len(years) < 2:
-            return {
-                "sostenible": None,
-                "razon": "Datos insuficientes",
-                "indicadores": {}
-            }
-        
-        # Calcular indicadores clave de sostenibilidad
-        indicadores = {}
-        
-        # 1. Ratio Deuda/EBITDA
-        ebitda_vals = []
-        for year in years:
-            # Intentar obtener EBITDA del año correspondiente
-            ebitda = None
-            if fin is not None and not fin.empty:
-                for col in fin.columns:
-                    if col.year == year:
-                        ebitda_val = fin[col].get('EBITDA') or fin[col].get('Operating Income')
-                        if ebitda_val:
-                            ebitda = ebitda_val
-                            break
-            
-            # Si no encontramos EBITDA, usar EBIT como aproximación
-            if ebitda is None and 'EBIT' in empresa:
-                ebitda = empresa['EBIT']  # Aproximación
-            
-            ebitda_vals.append(ebitda)
-        
-        # Calcular deuda total por año
-        deuda_vals = []
-        for year in years:
-            if year in empresa['BalanceSheetHistory']:
-                deuda_total = empresa['BalanceSheetHistory'][year].get('Total Liabilities', 0)
-                deuda_vals.append(deuda_total)
-        
-        # Calcular ratio Deuda/EBITDA
-        deuda_ebitda_ratios = []
-        for i in range(len(years)):
-            if ebitda_vals[i] and ebitda_vals[i] > 0 and deuda_vals[i]:
-                ratio = deuda_vals[i] / ebitda_vals[i]
-                deuda_ebitda_ratios.append(ratio)
-        
-        indicadores['deuda_ebitda'] = deuda_ebitda_ratios[-1] if deuda_ebitda_ratios else None
-        indicadores['tendencia_deuda_ebitda'] = (
-            (deuda_ebitda_ratios[-1] - deuda_ebitda_ratios[0]) / deuda_ebitda_ratios[0] 
-            if len(deuda_ebitda_ratios) > 1 and deuda_ebitda_ratios[0] != 0 else None
-        )
-        
-        # 2. Cobertura de intereses (Interest Coverage Ratio)
-        intereses_vals = []
-        ebit_vals = []
-        
-        for year in years:
-            # Obtener gastos por intereses
-            interest_expense = None
-            if fin is not None and not fin.empty:
-                for col in fin.columns:
-                    if col.year == year:
-                        interest_expense = fin[col].get('Interest Expense')
-                        if interest_expense:
-                            break
-            
-            # Obtener EBIT
-            ebit = None
-            if fin is not None and not fin.empty:
-                for col in fin.columns:
-                    if col.year == year:
-                        ebit = fin[col].get('EBIT') or fin[col].get('Operating Income')
-                        if ebit:
-                            break
-            
-            intereses_vals.append(interest_expense)
-            ebit_vals.append(ebit)
-        
-        # Calcular cobertura de intereses
-        coverage_ratios = []
-        for i in range(len(years)):
-            if intereses_vals[i] and intereses_vals[i] > 0 and ebit_vals[i]:
-                ratio = ebit_vals[i] / intereses_vals[i]
-                coverage_ratios.append(ratio)
-        
-        indicadores['cobertura_intereses'] = coverage_ratios[-1] if coverage_ratios else None
-        indicadores['tendencia_cobertura'] = (
-            (coverage_ratios[-1] - coverage_ratios[0]) / coverage_ratios[0] 
-            if len(coverage_ratios) > 1 and coverage_ratios[0] != 0 else None
-        )
-        
-        # 3. Flujo de caja libre vs servicio de deuda
-        fcf_vals = []
-        for year in years:
-            # Obtener flujo de caja libre
-            fcf = None
-            if cf is not None and not cf.empty:
-                for col in cf.columns:
-                    if col.year == year:
-                        fcf = cf[col].get('Free Cash Flow')
-                        if fcf:
-                            break
-            fcf_vals.append(fcf)
-        
-        # Calcular servicio de deuda (intereses + principal)
-        # Para simplificar, usamos solo intereses como aproximación
-        servicio_deuda = intereses_vals
-        
-        # Calcular ratio FCF/ServiceDeuda
-        fcf_service_ratios = []
-        for i in range(len(years)):
-            if servicio_deuda[i] and servicio_deuda[i] > 0 and fcf_vals[i]:
-                ratio = fcf_vals[i] / servicio_deuda[i]
-                fcf_service_ratios.append(ratio)
-        
-        indicadores['fcf_servicio_deuda'] = fcf_service_ratios[-1] if fcf_service_ratios else None
-        
-        # 4. Evaluar sostenibilidad
-        sostenible = True
-        razones = []
-        
-        # Criterio 1: Deuda/EBITDA < 4 (generalmente considerado manejable)
-        if indicadores['deuda_ebitda'] and indicadores['deuda_ebitda'] > 4:
-            sostenible = False
-            razones.append(f"Deuda/EBITDA elevado ({indicadores['deuda_ebitda']:.2f})")
-        
-        # Criterio 2: Cobertura de intereses > 2 (mínimo para considerar sostenible)
-        if indicadores['cobertura_intereses'] and indicadores['cobertura_intereses'] < 2:
-            sostenible = False
-            razones.append(f"Cobertura de intereses baja ({indicadores['cobertura_intereses']:.2f})")
-        
-        # Criterio 3: FCF/ServiceDeuda > 1 (el FCF cubre el servicio de deuda)
-        if indicadores['fcf_servicio_deuda'] and indicadores['fcf_servicio_deuda'] < 1:
-            sostenible = False
-            razones.append(f"FCF no cubre servicio de deuda ({indicadores['fcf_servicio_deuda']:.2f})")
-        
-        # Criterio 4: Tendencia empeorando
-        if (indicadores['tendencia_deuda_ebitda'] and indicadores['tendencia_deuda_ebitda'] > 0.1 or
-            indicadores['tendencia_cobertura'] and indicadores['tendencia_cobertura'] < -0.1):
-            sostenible = False
-            razones.append("Tendencia negativa en indicadores de deuda")
-        
-        return {
-            "sostenible": sostenible,
-            "razon": ", ".join(razones) if razones else "Deuda sostenible",
-            "indicadores": indicadores
-        }
-        
-    except Exception as e:
-        return {
-            "sostenible": None,
-            "razon": f"Error en análisis: {str(e)}",
-            "indicadores": {}
-        }
-
-# =============================================================
-# SECCIÓN 4 AMPLIADA - ESTRUCTURA DE CAPITAL, LIQUIDEZ Y SOSTENIBILIDAD
-# =============================================================
-def mostrar_seccion_4_ampliada(df):
-    """
-    Muestra la sección 4 ampliada con análisis de sostenibilidad de deuda
-    """
-    st.header("🏦 Estructura de Capital, Liquidez y Sostenibilidad de Deuda")
-    
-    sectors_ordered = df["Sector"].unique()
-    
-    for sec in sectors_ordered:
-        sec_df = df[df["Sector"] == sec]
-        if sec_df.empty:
-            continue
-            
-        with st.expander(f"Sector: {sec}", expanded=False):
-            for i, chunk in enumerate(chunk_df(sec_df), 1):
-                st.caption(f"Bloque {i}")
-                c1, c2, c3 = st.columns([2, 1, 1])
-                
-                with c1:
-                    st.caption("Patrimonio Deuda Activos (Últimos 4 años)")
-                    
-                    # Crear gráfico para cada empresa en el chunk
-                    for _, empresa in chunk.iterrows():
-                        st.markdown(f"**{empresa['Ticker']}**")
-                        
-                        # Obtener datos históricos del balance sheet
-                        bs_history = empresa.get('BalanceSheetHistory', {})
-                        
-                        if bs_history:
-                            # Preparar datos para el gráfico
-                            years = sorted(bs_history.keys())
-                            assets = [bs_history[year].get('Total Assets', 0) for year in years]
-                            liabilities = [bs_history[year].get('Total Liabilities', 0) for year in years]
-                            equity = [bs_history[year].get('Total Equity', 0) for year in years]
-                            
-                            # Crear gráfico de barras apiladas
-                            fig, ax = plt.subplots(figsize=(10, 5))
-                            
-                            x_pos = np.arange(len(years))
-                            width = 0.8
-                            
-                            # Convertir a millones para mejor visualización
-                            assets_m = [a/1e6 if a else 0 for a in assets]
-                            liabilities_m = [l/1e6 if l else 0 for l in liabilities]
-                            equity_m = [e/1e6 if e else 0 for e in equity]
-                            
-                            ax.bar(x_pos, liabilities_m, width, label='Pasivos', color='#FF6B6B')
-                            ax.bar(x_pos, equity_m, width, bottom=liabilities_m, label='Patrimonio', color='#4ECDC4')
-                            
-                            ax.set_xlabel('Año')
-                            ax.set_ylabel('Millones USD')
-                            ax.set_title(f"{empresa['Ticker']} - Estructura Patrimonial")
-                            ax.set_xticks(x_pos)
-                            ax.set_xticklabels(years)
-                            ax.legend()
-                            
-                            # Añadir línea de activos totales
-                            ax.plot(x_pos, assets_m, 'o-', color='#45B7D1', linewidth=2, 
-                                   markersize=8, label='Activos Totales')
-                            
-                            st.pyplot(fig)
-                            plt.close()
-                        else:
-                            st.warning("No hay datos históricos disponibles")
-                
-                with c2:
-                    st.caption("Liquidez")
-                    fig, ax = plt.subplots(figsize=(10, 5))
-                    liq = chunk[["Ticker", "Current Ratio", "Quick Ratio"]].set_index("Ticker").apply(pd.to_numeric, errors="coerce")
-                    liq.plot(kind="bar", ax=ax, rot=45)
-                    ax.axhline(1, color="green", linestyle="--")
-                    ax.set_ylabel("Ratio")
-                    auto_ylim(ax, liq)
-                    st.pyplot(fig)
-                    plt.close()
-                
-                with c3:
-                    st.caption("Sostenibilidad de Deuda")
-                    
-                    # Análisis de sostenibilidad para cada empresa
-                    for _, empresa in chunk.iterrows():
-                        analisis = analizar_sostenibilidad_deuda(empresa)
-                        
-                        st.markdown(f"**{empresa['Ticker']}**")
-                        
-                        if analisis['sostenible'] is None:
-                            st.warning(analisis['razon'])
-                        else:
-                            # Mostrar indicadores clave
-                            if analisis['indicadores'].get('deuda_ebitda'):
-                                st.metric("Deuda/EBITDA", f"{analisis['indicadores']['deuda_ebitda']:.2f}")
-                            
-                            if analisis['indicadores'].get('cobertura_intereses'):
-                                st.metric("Cobertura Intereses", f"{analisis['indicadores']['cobertura_intereses']:.2f}x")
-                            
-                            if analisis['indicadores'].get('fcf_servicio_deuda'):
-                                st.metric("FCF/Service Deuda", f"{analisis['indicadores']['fcf_servicio_deuda']:.2f}")
-                            
-                            # Mostrar evaluación
-                            if analisis['sostenible']:
-                                st.success("✅ Deuda Sostenible")
-                            else:
-                                st.error(f"❌ Riesgo de Deuda: {analisis['razon']}")
 
 # =============================================================
 # INTERFAZ PRINCIPAL
@@ -591,7 +322,7 @@ def main():
                 "Precio", "P/E", "P/B", "P/FCF",
                 "Dividend Yield %", "Payout Ratio", "ROA", "ROE",
                 "Current Ratio", "Debt/Eq", "Oper Margin", "Profit Margin",
-                "WACC", "ROIC", "Creacion Valor (Wacc vs Roic)", "MarketCap"
+                "WACC", "ROIC", "Creacion Valor (Wacc vs Roic)", "MarketCap"  # Cambiado
             ]],
             use_container_width=True,
             height=500
@@ -678,10 +409,73 @@ def main():
             st.pyplot(fig)
             plt.close()
 
-        # =====================================================
-        # SECCIÓN 4: ESTRUCTURA DE CAPITAL, LIQUIDEZ Y SOSTENIBILIDAD
-        # =====================================================
-        mostrar_seccion_4_ampliada(df)
+        # =============================================================
+        # SECCIÓN 4: ESTRUCTURA DE CAPITAL Y LIQUIDEZ
+        # =============================================================
+        st.header("🏦 Estructura de Capital y Liquidez (por sector)")
+
+        for sec in sectors_ordered:
+            sec_df = df[df["Sector"] == sec]
+            if sec_df.empty:
+                continue
+                
+            with st.expander(f"Sector: {sec}", expanded=False):
+                for i, chunk in enumerate(chunk_df(sec_df), 1):
+                    st.caption(f"Bloque {i}")
+                    c1, c2 = st.columns(2)
+                    
+                    with c1:
+                        st.caption("Evolución Patrimonio Deuda Activos (últimos 4 años)")
+                        
+                        fig, ax = plt.subplots(figsize=(12, 6))
+                        has_data = False
+                        
+                        for ticker in chunk["Ticker"]:
+                            activos, pasivos, patrimonio, years = obtener_datos_balance_historico(ticker)
+                            
+                            if activos is not None and not activos.empty:
+                                has_data = True
+                                # Crear DataFrame para el gráfico
+                                df_evol = pd.DataFrame({
+                                    'Activos': activos.values / 1e6,  # Convertir a millones
+                                    'Pasivos': pasivos.values / 1e6,
+                                    'Patrimonio': patrimonio.values / 1e6
+                                }, index=years)
+                                
+                                # Graficar
+                                x_pos = np.arange(len(years))
+                                width = 0.25
+                                
+                                ax.bar(x_pos - width, df_evol['Activos'], width, 
+                                      label=f'{ticker} - Activos', alpha=0.8)
+                                ax.bar(x_pos, df_evol['Pasivos'], width, 
+                                      label=f'{ticker} - Pasivos', alpha=0.8)
+                                ax.bar(x_pos + width, df_evol['Patrimonio'], width, 
+                                      label=f'{ticker} - Patrimonio', alpha=0.8)
+                        
+                        if has_data:
+                            ax.set_xlabel('Año')
+                            ax.set_ylabel('Valor (Millones USD)')
+                            ax.set_title('Evolución Patrimonio Deuda Activos')
+                            ax.set_xticks(np.arange(len(years)))
+                            ax.set_xticklabels(years)
+                            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                            plt.xticks(rotation=45)
+                            st.pyplot(fig)
+                        else:
+                            st.info(f"No se encontraron datos históricos de balance para las empresas del sector {sec}")
+                        plt.close()
+                        
+                    with c2:
+                        st.caption("Liquidez")
+                        fig, ax = plt.subplots(figsize=(10, 5))
+                        liq = chunk[["Ticker", "Current Ratio", "Quick Ratio"]].set_index("Ticker").apply(pd.to_numeric, errors="coerce")
+                        liq.plot(kind="bar", ax=ax, rot=45)
+                        ax.axhline(1, color="green", linestyle="--")
+                        ax.set_ylabel("Ratio")
+                        auto_ylim(ax, liq)
+                        st.pyplot(fig)
+                        plt.close()
 
         # =====================================================
         # SECCIÓN 5: CRECIMIENTO
@@ -735,7 +529,7 @@ def main():
             st.metric("Market Cap", det_disp["MarketCap"])
             st.metric("ROIC", det_disp["ROIC"])
             st.metric("WACC", det_disp["WACC"])
-            st.metric("Creación Valor", det_disp["Creacion Valor (Wacc vs Roic)"])
+            st.metric("Creación Valor", det_disp["Creacion Valor (Wacc vs Roic)"])  # Cambiado
             
         with cC:
             st.metric("ROE", det_disp["ROE"])
@@ -762,4 +556,7 @@ def main():
             else:
                 st.error("❌ Destruye valor (ROIC < WACC)")
         else:
-            st.warning("Datos insuficientes para comparar RO
+            st.warning("Datos insuficientes para comparar ROIC/WACC")
+
+if __name__ == "__main__":
+    main()
