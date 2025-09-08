@@ -428,64 +428,38 @@ def main():
                             if bs_history:
                                 # Preparar datos para el gráfico
                                 years = sorted(bs_history.keys())
+                                assets = [bs_history[year].get('Total Assets', 0) for year in years]
+                                liabilities = [bs_history[year].get('Total Liabilities', 0) for year in years]
+                                equity = [bs_history[year].get('Total Equity', 0) for year in years]
                                 
-                                # Obtener datos para cada año
-                                assets_data = []
-                                liabilities_data = []
-                                equity_data = []
-                                
-                                for year in years:
-                                    assets_data.append(bs_history[year].get('Total Assets', 0) / 1e6)  # Convertir a millones
-                                    liabilities_data.append(bs_history[year].get('Total Liabilities', 0) / 1e6)
-                                    equity_data.append(bs_history[year].get('Total Equity', 0) / 1e6)
-                                
-                                # Crear gráfico de barras agrupadas
-                                fig, ax = plt.subplots(figsize=(12, 6))
+                                # Crear gráfico de barras verticales
+                                fig, ax = plt.subplots(figsize=(10, 5))
                                 
                                 x_pos = np.arange(len(years))
-                                width = 0.25  # Ancho de las barras
+                                width = 0.25
                                 
-                                # Crear barras para cada categoría
-                                bars1 = ax.bar(x_pos - width, assets_data, width, 
-                                              label='Activos Totales', color='#45B7D1', alpha=0.8)
-                                bars2 = ax.bar(x_pos, liabilities_data, width, 
-                                              label='Pasivos Totales', color='#FF6B6B', alpha=0.8)
-                                bars3 = ax.bar(x_pos + width, equity_data, width, 
-                                              label='Patrimonio Neto', color='#4ECDC4', alpha=0.8)
+                                # Convertir a millones para mejor visualización
+                                assets_m = [a/1e6 if a else 0 for a in assets]
+                                liabilities_m = [l/1e6 if l else 0 for l in liabilities]
+                                equity_m = [e/1e6 if e else 0 for e in equity]
+                                
+                                # Crear barras verticales separadas para cada categoría
+                                ax.bar(x_pos - width, assets_m, width, label='Activos', color='#45B7D1')
+                                ax.bar(x_pos, liabilities_m, width, label='Pasivos', color='#FF6B6B')
+                                ax.bar(x_pos + width, equity_m, width, label='Patrimonio', color='#4ECDC4')
                                 
                                 ax.set_xlabel('Año')
                                 ax.set_ylabel('Millones USD')
-                                ax.set_title(f"{empresa['Ticker']} - Estructura Patrimonial (Últimos 4 años)")
+                                ax.set_title(f"{empresa['Ticker']} - Estructura Patrimonial")
                                 ax.set_xticks(x_pos)
                                 ax.set_xticklabels(years)
                                 ax.legend()
-                                
-                                # Añadir valores en las barras
-                                def add_value_labels(bars):
-                                    for bar in bars:
-                                        height = bar.get_height()
-                                        if height > 0:  # Solo mostrar valores positivos
-                                            ax.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
-                                                    f'{height:,.0f}M', ha='center', va='bottom', 
-                                                    fontsize=8, fontweight='bold')
-                                
-                                add_value_labels(bars1)
-                                add_value_labels(bars2)
-                                add_value_labels(bars3)
-                                
-                                # Ajustar límites del eje Y
-                                max_value = max(max(assets_data), max(liabilities_data), max(equity_data))
-                                ax.set_ylim(0, max_value * 1.15)
-                                
-                                # Mejorar la legibilidad
-                                plt.xticks(rotation=45)
-                                plt.tight_layout()
                                 
                                 st.pyplot(fig)
                                 plt.close()
                             else:
                                 st.warning("No hay datos históricos disponibles")
-                            
+                        
                     with c2:
                         st.caption("Liquidez")
                         fig, ax = plt.subplots(figsize=(10, 5))
